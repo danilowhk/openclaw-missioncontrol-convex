@@ -1,0 +1,9 @@
+{
+  "id": "missioncontrol-convex",
+  "channels": ["missioncontrol-convex"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
