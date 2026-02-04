@@ -20,7 +20,9 @@ export async function startMonitor(options: MonitorOptions): Promise<MonitorHand
 
   const processedMessageIds = new Set<string>();
   const myConversations = new Map<string, MCConvexConversation>();
-  
+  const initialSyncComplete = new Set<string>();
+  const connectionTimestamp = Date.now();
+
   let isRunning = true;
   let convexClient: ConvexClient | null = null;
   let unsubscribes: Array<() => void> = [];
@@ -29,6 +31,7 @@ export async function startMonitor(options: MonitorOptions): Promise<MonitorHand
   let subscriptionsFailed = 0;
 
   console.log("[missioncontrol-convex] Starting monitor for agent " + account.agentId);
+  console.log("[missioncontrol-convex] Connection timestamp: " + connectionTimestamp);
   console.log("[missioncontrol-convex] Convex URL: " + account.convexUrl);
   console.log("[missioncontrol-convex] API URL: " + account.apiUrl);
 
@@ -93,20 +96,39 @@ export async function startMonitor(options: MonitorOptions): Promise<MonitorHand
         { conversationId },
         (messages: MCConvexMessage[]) => {
           if (isRunning === false) return;
-          
+
+          const isInitialSync = !initialSyncComplete.has(conversationId);
+
           for (const msg of messages) {
             if (processedMessageIds.has(msg._id)) continue;
-            
+
             if (msg.senderId === account.agentId) {
+              processedMessageIds.add(msg._id);
+              continue;
+            }
+
+            // Check if this is a historical message (sent before we connected)
+            const msgTimestamp = msg._creationTime || 0;
+            const isHistorical = msgTimestamp < connectionTimestamp;
+
+            // During initial sync or for historical messages, just mark as processed without responding
+            if (isHistorical || isInitialSync) {
+              console.log("[missioncontrol-convex] [CONTEXT] Historical message from " + msg.senderId + " (skipping response): " + msg.content.substring(0, 50) + "...");
               processedMessageIds.add(msg._id);
               continue;
             }
 
             console.log("[missioncontrol-convex] [REALTIME] New message from " + msg.senderId + ": " + msg.content.substring(0, 50) + "...");
             processedMessageIds.add(msg._id);
-            
+
             const normalized = normalizeMessage(msg, account.accountId);
             onMessage(normalized);
+          }
+
+          // Mark initial sync as complete for this conversation
+          if (isInitialSync) {
+            initialSyncComplete.add(conversationId);
+            console.log("[missioncontrol-convex] Initial sync complete for conversation: " + conversationId);
           }
         },
         (error: Error) => {
@@ -156,20 +178,38 @@ export async function startMonitor(options: MonitorOptions): Promise<MonitorHand
       for (const [convId] of myConversations) {
         try {
           const messages = await getMessages(account, convId);
-          
+          const isInitialSync = !initialSyncComplete.has(convId);
+
           for (const msg of messages) {
             if (processedMessageIds.has(msg._id)) continue;
-            
+
             if (msg.senderId === account.agentId) {
+              processedMessageIds.add(msg._id);
+              continue;
+            }
+
+            // Check if this is a historical message (sent before we connected)
+            const msgTimestamp = msg._creationTime || 0;
+            const isHistorical = msgTimestamp < connectionTimestamp;
+
+            // During initial sync or for historical messages, just mark as processed without responding
+            if (isHistorical || isInitialSync) {
+              console.log("[missioncontrol-convex] [CONTEXT] Historical message from " + msg.senderId + " (skipping response): " + msg.content.substring(0, 50) + "...");
               processedMessageIds.add(msg._id);
               continue;
             }
 
             console.log("[missioncontrol-convex] [POLL] New message from " + msg.senderId + ": " + msg.content.substring(0, 50) + "...");
             processedMessageIds.add(msg._id);
-            
+
             const normalized = normalizeMessage(msg, account.accountId);
             onMessage(normalized);
+          }
+
+          // Mark initial sync as complete for this conversation
+          if (isInitialSync) {
+            initialSyncComplete.add(convId);
+            console.log("[missioncontrol-convex] Initial sync complete for conversation: " + convId);
           }
         } catch (err) {
           console.error("[missioncontrol-convex] Error polling conversation " + convId + ": " + err);
