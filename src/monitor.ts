@@ -22,6 +22,7 @@ export async function startMonitor(options: MonitorOptions): Promise<MonitorHand
   const myConversations = new Map<string, MCConvexConversation>();
   const initialSyncComplete = new Set<string>();
   const connectionTimestamp = Date.now();
+  const GRACE_PERIOD_MS = 20000; // 20 seconds - respond to messages sent within this window before connection
 
   let isRunning = true;
   let convexClient: ConvexClient | null = null;
@@ -107,18 +108,19 @@ export async function startMonitor(options: MonitorOptions): Promise<MonitorHand
               continue;
             }
 
-            // Check if this is a historical message (sent before we connected)
+            // Check if this is a historical message (sent before we connected, outside grace period)
             const msgTimestamp = msg._creationTime || 0;
-            const isHistorical = msgTimestamp < connectionTimestamp;
+            const messageAge = connectionTimestamp - msgTimestamp;
+            const isHistorical = msgTimestamp < connectionTimestamp && messageAge > GRACE_PERIOD_MS;
 
-            // During initial sync or for historical messages, just mark as processed without responding
-            if (isHistorical || isInitialSync) {
-              console.log("[missioncontrol-convex] [CONTEXT] Historical message from " + msg.senderId + " (skipping response): " + msg.content.substring(0, 50) + "...");
+            // During initial sync, skip only truly old messages (outside grace period)
+            if (isHistorical && isInitialSync) {
+              console.log("[missioncontrol-convex] [CONTEXT] Historical message from " + msg.senderId + " (age: " + Math.round(messageAge / 1000) + "s, skipping): " + msg.content.substring(0, 50) + "...");
               processedMessageIds.add(msg._id);
               continue;
             }
 
-            console.log("[missioncontrol-convex] [REALTIME] New message from " + msg.senderId + ": " + msg.content.substring(0, 50) + "...");
+            console.log("[missioncontrol-convex] [REALTIME] New message from " + msg.senderId + " (age: " + Math.round(messageAge / 1000) + "s): " + msg.content.substring(0, 50) + "...");
             processedMessageIds.add(msg._id);
 
             const normalized = normalizeMessage(msg, account.accountId);
@@ -188,18 +190,19 @@ export async function startMonitor(options: MonitorOptions): Promise<MonitorHand
               continue;
             }
 
-            // Check if this is a historical message (sent before we connected)
+            // Check if this is a historical message (sent before we connected, outside grace period)
             const msgTimestamp = msg._creationTime || 0;
-            const isHistorical = msgTimestamp < connectionTimestamp;
+            const messageAge = connectionTimestamp - msgTimestamp;
+            const isHistorical = msgTimestamp < connectionTimestamp && messageAge > GRACE_PERIOD_MS;
 
-            // During initial sync or for historical messages, just mark as processed without responding
-            if (isHistorical || isInitialSync) {
-              console.log("[missioncontrol-convex] [CONTEXT] Historical message from " + msg.senderId + " (skipping response): " + msg.content.substring(0, 50) + "...");
+            // During initial sync, skip only truly old messages (outside grace period)
+            if (isHistorical && isInitialSync) {
+              console.log("[missioncontrol-convex] [CONTEXT] Historical message from " + msg.senderId + " (age: " + Math.round(messageAge / 1000) + "s, skipping): " + msg.content.substring(0, 50) + "...");
               processedMessageIds.add(msg._id);
               continue;
             }
 
-            console.log("[missioncontrol-convex] [POLL] New message from " + msg.senderId + ": " + msg.content.substring(0, 50) + "...");
+            console.log("[missioncontrol-convex] [POLL] New message from " + msg.senderId + " (age: " + Math.round(messageAge / 1000) + "s): " + msg.content.substring(0, 50) + "...");
             processedMessageIds.add(msg._id);
 
             const normalized = normalizeMessage(msg, account.accountId);
